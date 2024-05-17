@@ -1,5 +1,5 @@
+/* eslint-disable max-depth */
 import { Args, Command } from '@oclif/core';
-import Airtable from 'airtable';
 import * as fs from 'node:fs';
 
 export default class Calcdelivery extends Command {
@@ -20,7 +20,6 @@ export default class Calcdelivery extends Command {
 
     public async run(): Promise<void> {
         try {
-            const airtableConnect = new Airtable({ apiKey: 'patkn3Vg0tNoU58LO.b1c055bfe179e029cdad428ace62fb48299fc8ab7a8542cb5f00eda37b338ffc' }).base('appfpuP60LaQJ6sZf');
             const { args } = await this.parse(Calcdelivery)
             if (args.deliveryData) {
                 const deliveryDataFile = fs.readFileSync(args.deliveryData, 'utf8');
@@ -36,28 +35,20 @@ export default class Calcdelivery extends Command {
                 }
 
                 const packageInfos = dataLines.slice(1, - 1);
-                airtableConnect('tblmTqV8q0naGlpFo').select(
-                    {
-                        view: 'Grid view',
-                    }
-                ).firstPage((err, records) => {
-                    if (err) {
-                        console.error(err);
-                        return;
-                    }
-
-                    for (const record of records) {
-                        console.log('Retrieved', record.get(['Discount Code', 'Discount', 'Min Distance', 'Max Distance', 'Min Weight', 'Max Weight']));
-                    }
-                }
-                );
+                const discountTable = await fetch('https://api.sheety.co/2b7bc60998aa8877d2553905c3b3ba85/everestEngineeringTestDeliveryDiscountTable/main')
+                const discountInfos = (await discountTable.json()).main;
+                let discount = 0;
                 for (const packageRow of packageInfos) {
                     const packageBits = packageRow.split(' ');
                     if (packageBits.length < 4) {
-                        const discount = 0;
+                        discount = 0;
                     } else {
                         const discountCode = packageBits[3];
+                        const discountCell = discountInfos.find((discountInfo: any) => discountInfo.code === discountCode);
+                        discount = discountCell.discount;
                     }
+
+                    console.log(discount);
                 }
             }
         } catch (error) {
