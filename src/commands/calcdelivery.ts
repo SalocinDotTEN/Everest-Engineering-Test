@@ -40,15 +40,20 @@ export default class Calcdelivery extends Command {
                 let discount = 0;
                 for (const packageRow of packageInfos) {
                     const packageBits = packageRow.split(' ');
+                    const deliveryCost = Number.parseInt(baseDeliveryRow[0], 10) + (Number.parseInt(packageBits[1], 10) * 10) + (Number.parseInt(packageBits[2], 10) * 5);
                     if (packageBits.length < 4) {
                         discount = 0;
                     } else {
                         const discountCode = packageBits[3];
                         const discountCell = discountInfos.find((discountInfo: any) => discountInfo.code === discountCode);
-                        discount = discountCell.discount;
+                        const weight = Number.parseInt(packageBits[1], 10);
+                        const distance = Number.parseInt(packageBits[2], 10);
+                        discount = (weight >= Number.parseInt(discountCell.minWeight, 10) && weight <= Number.parseInt(discountCell.maxWeight, 10) && distance >= Number.parseInt(discountCell.minDistance, 10) && distance <= Number.parseInt(discountCell.maxDistance, 10)) ? discountCell.discount : 0;
                     }
+                    
+                    const discountDeliveryCost = deliveryCost - (deliveryCost * discount);
 
-                    console.log(discount);
+                    console.log(packageBits[0] + ' ' + discount + ' ' + discountDeliveryCost);
                 }
             }
         } catch (error) {
