@@ -12,49 +12,99 @@ export default class Deliverytime extends Command {
         '<%= config.bin %> <%= command.id %> ./path/to/textfile.txt',
     ]
 
-    public async run(): Promise<void> {
-        try {
-            const { args } = await this.parse(Deliverytime)
-            if (args.shipmentData) {
-                const shipmentDataFile = fs.readFileSync(args.shipmentData, 'utf8');
-                const shipmentData = shipmentDataFile.split('\n');
-                const shipmentCount = shipmentData.length - 3;
-                const baseDeliveryRow = shipmentData[0].split(' ');
-                if (baseDeliveryRow.length !== 2) {
-                    this.error('Base delivery row is not in the correct format.');
+    calculateDiscount(pkg, deliveryCost) {
+        const offers = {
+            'OFR001': { discount: 0.1, distanceRange: [0, 200], weightRange: [70, 200] },
+            'OFR002': { discount: 0.07, distanceRange: [50, 150], weightRange: [100, 250] },
+            'OFR003': { discount: 0.05, distanceRange: [50, 250], weightRange: [10, 150] }
+        };
+
+        const offer = offers[pkg.offerCode];
+        if (offer &&
+            pkg.pkgWeight >= offer.weightRange[0] &&
+            pkg.pkgWeight <= offer.weightRange[1] &&
+            pkg.distance >= offer.distanceRange[0] &&
+            pkg.distance <= offer.distanceRange[1]) {
+            return deliveryCost * offer.discount;
+        }
+
+        return 0;
+    }
+
+    estimateDeliveryTime(packages, numberOfVehicles, maxSpeed, maxWeight) {
+        let currentTime = 0;
+        const vehicleAvailableTime = new Array(numberOfVehicles).fill(0);
+
+        while (packages.length > 0) {
+            packages.sort((a, b) => b.pkgWeight - a.pkgWeight || a.distance - b.distance);
+
+            for (let i = 0; i < numberOfVehicles && packages.length > 0; i++) {
+                if (vehicleAvailableTime[i] <= currentTime) {
+                    let totalWeight = 0;
+                    let tripDistance = 0;
+                    const tripPackages = [];
+
+                    while (packages.length > 0 && totalWeight + packages[0].pkgWeight <= maxWeight) {
+                        const pkg = packages.shift();
+                        totalWeight += pkg.pkgWeight;
+                        tripDistance = Math.max(tripDistance, pkg.distance);
+                        tripPackages.push(pkg);
+                    }
+
+                    const tripTime = 2 * (tripDistance / maxSpeed);
+                    for (const pkg of tripPackages) {
+                        pkg.estimatedDeliveryTime = currentTime + tripTime / 2;
+                    }
+
+                    vehicleAvailableTime[i] = currentTime + tripTime;
                 }
-
-                if (shipmentCount !== Number.parseInt(baseDeliveryRow[1], 10)) {
-                    this.error('Number of shipments do not match the number of shipments in the file.');
-                }
-
-                const packageInfos = shipmentData.slice(1, - 2);
-
-                const weights = packageInfos.map(packageRow => {
-                    const packageBits = packageRow.split(' ');
-                    return Number.parseInt(packageBits[1], 10); // assuming the weight is the second element in each row
-                });
-
-                weights.sort((a, b) => a - b); // sort the weights in descending order
-
-                let sum = 0;
-                let i = 0;
-                while (i < weights.length && sum + weights[i] < 200) {
-                    sum += weights[i];
-                    i++;
-                }
-
-                console.log('Sum of heaviest weights less than 200: ', sum);
-
-                // const maxWeight = Math.max(...weights);
-
-                // console.log('Largest weight: ', maxWeight);
-
-                // const discountTable = await fetch('https://api.sheety.co/2b7bc60998aa8877d2553905c3b3ba85/everestEngineeringTestDeliveryDiscountTable/main')
-                // const discountInfos = (await discountTable.json()).main;
             }
-        } catch (error) {
-            console.log(error);
+
+            currentTime = Math.min(...vehicleAvailableTime);
+        }
+    }
+
+    public async run(): Promise<void> {
+        const { args } = await this.parse(Deliverytime);
+        if (!args.shipmentData) {
+            this.error('Input file path must be provided.');
+            return;
+        }
+
+        const inputData = fs.readFileSync(args.shipmentData, 'utf8');
+        const lines = inputData.split('\n').filter(line => line.trim() !== '');
+
+        const baseDeliveryCost = Number.parseInt(lines[0].split(' ')[0], 10);
+        const numberOfPackages = Number.parseInt(lines[0].split(' ')[1], 10);
+        const packages = lines.slice(1, numberOfPackages + 1).map(line => {
+            const [pkgId, pkgWeight, distance, offerCode] = line.split(' ');
+            return {
+                distance: Number.parseFloat(distance),
+                offerCode,
+                pkgId,
+                pkgWeight: Number.parseFloat(pkgWeight)
+            };
+        });
+
+        const vehicleDetails = lines[numberOfPackages + 1].split(' ');
+        const numberOfVehicles = Number.parseInt(vehicleDetails[0], 10);
+        const maxSpeed = Number.parseInt(vehicleDetails[1], 10);
+        const maxWeight = Number.parseFloat(vehicleDetails[2]);
+
+        // Process packages
+        const result = packages.map(pkg => {
+            const deliveryCost = baseDeliveryCost + (pkg.pkgWeight * 10) + (pkg.distance * 5);
+            const discount = this.calculateDiscount(pkg, deliveryCost);
+            const totalCost = deliveryCost - discount;
+            return { ...pkg, discount, estimatedDeliveryTime: 0, totalCost };
+        });
+
+        // Estimate delivery time
+        this.estimateDeliveryTime(result, numberOfVehicles, maxSpeed, maxWeight);
+
+        // Output results
+        for (const pkg of result) {
+            console.log(`${pkg.pkgId} ${pkg.discount.toFixed(2)} ${pkg.totalCost.toFixed(2)} ${pkg.estimatedDeliveryTime.toFixed(2)}`);
         }
     }
 }
