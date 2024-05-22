@@ -109,9 +109,9 @@ export default class Deliverytime extends Command {
             }
 
             currentTime = Math.min(...vehicleAvailableTime);
+            console.log(result);
         }
 
-        console.log(result);
 
         // Output results
         for (const pkg of result) {
