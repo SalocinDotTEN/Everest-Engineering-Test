@@ -109,13 +109,11 @@ export default class Deliverytime extends Command {
             }
 
             currentTime = Math.min(...vehicleAvailableTime);
-            console.log(result);
+            // Output results
+            for (const pkg of result) {
+                console.log(`${pkg.pkgId} ${pkg.discount!.toFixed(2)} ${pkg.totalCost!.toFixed(2)} ${pkg.estimatedDeliveryTime!.toFixed(2)}`);
+            }
         }
 
-
-        // Output results
-        for (const pkg of result) {
-            console.log(`${pkg.pkgId} ${pkg.discount!.toFixed(2)} ${pkg.totalCost!.toFixed(2)} ${pkg.estimatedDeliveryTime!.toFixed(2)}`);
-        }
     }
 }
