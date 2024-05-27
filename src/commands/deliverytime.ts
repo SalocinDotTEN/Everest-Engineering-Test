@@ -2,20 +2,21 @@ import { Args, Command, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 
 interface Package {
+    discount?: number;
+    distance: number;
+    estimatedDeliveryTime?: number;
+    offerCode: string;
     pkgId: string;
     pkgWeight: number;
-    distance: number;
-    offerCode: string;
-    discount?: number;
     totalCost?: number;
-    estimatedDeliveryTime?: number;
 }
 
 interface Offer {
     discount: number;
-    weightRange: [number, number];
     distanceRange: [number, number];
+    weightRange: [number, number];
 }
+
 
 export default class Deliverytime extends Command {
     static override args = {
@@ -34,6 +35,59 @@ export default class Deliverytime extends Command {
         'OFR003': { discount: 0.05, distanceRange: [50, 250], weightRange: [10, 150] }
     };
 
+    calculateDiscount(pkg: Package, deliveryCost: number): number {
+        const offer = this.offers[pkg.offerCode];
+        if (offer &&
+            pkg.pkgWeight >= offer.weightRange[0] &&
+            pkg.pkgWeight <= offer.weightRange[1] &&
+            pkg.distance >= offer.distanceRange[0] &&
+            pkg.distance <= offer.distanceRange[1]) {
+            return deliveryCost * offer.discount;
+        }
+
+        return 0;
+    }
+
+    estimateDeliveryTime(packages: Package[], numberOfVehicles: number, maxSpeed: number, maxWeight: number) {
+        let currentTime = 0;
+        const vehicleAvailableTime = Array(numberOfVehicles).fill(0);
+
+        // Sort packages initially based on weight (desc) and distance (asc)
+        packages.sort((a, b) => b.pkgWeight - a.pkgWeight || a.distance - b.distance);
+
+        while (packages.length > 0) {
+            for (let i = 0; i < numberOfVehicles && packages.length > 0; i++) {
+                if (vehicleAvailableTime[i] <= currentTime) {
+                    let totalWeight = 0;
+                    let tripDistance = 0;
+                    const tripPackages: Package[] = [];
+
+                    // Select packages for the current trip
+                    while (packages.length > 0 && totalWeight + packages[0].pkgWeight <= maxWeight) {
+                        const pkg = packages.shift()!;
+                        totalWeight += pkg.pkgWeight;
+                        tripDistance = Math.max(tripDistance, pkg.distance);
+                        tripPackages.push(pkg);
+                    }
+
+                    if (tripPackages.length > 0) {
+                        const tripTime = 2 * (tripDistance / maxSpeed);
+                        for (const pkg of tripPackages) {
+                            pkg.estimatedDeliveryTime = currentTime + tripTime / 2;
+                        }
+
+                        vehicleAvailableTime[i] = currentTime + tripTime;
+                    }
+                }
+            }
+
+            // Update currentTime to the earliest available vehicle time
+            currentTime = Math.min(...vehicleAvailableTime);
+        }
+
+        return packages;
+    }
+
     public async run(): Promise<void> {
         const { args } = await this.parse(Deliverytime);
         if (!args.shipmentData) {
@@ -41,6 +95,7 @@ export default class Deliverytime extends Command {
             return;
         }
 
+        // Read input file
         const inputData = fs.readFileSync(args.shipmentData, 'utf8');
         const lines = inputData.split('\n').filter(line => line.trim() !== '');
 
@@ -61,59 +116,23 @@ export default class Deliverytime extends Command {
         const maxSpeed = Number.parseInt(vehicleDetails[1], 10);
         const maxWeight = Number.parseFloat(vehicleDetails[2]);
 
-
         // Process packages
         const result = packages.map(pkg => {
             const deliveryCost = baseDeliveryCost + (pkg.pkgWeight * 10) + (pkg.distance * 5);
-            const offer = this.offers[pkg.offerCode];
-            let discount = 0;
-            if (offer &&
-                pkg.pkgWeight >= offer.weightRange[0] &&
-                pkg.pkgWeight <= offer.weightRange[1] &&
-                pkg.distance >= offer.distanceRange[0] &&
-                pkg.distance <= offer.distanceRange[1]) {
-                discount = deliveryCost * offer.discount;
-            }
-
+            const discount = this.calculateDiscount(pkg, deliveryCost);
             const totalCost = deliveryCost - discount;
             return { ...pkg, discount, estimatedDeliveryTime: 0, totalCost };
         });
+        console.log(result);
 
         // Estimate delivery time
-        let currentTime = 0;
-        const vehicleAvailableTime = Array(numberOfVehicles).fill(0);
+        this.estimateDeliveryTime(result, numberOfVehicles, maxSpeed, maxWeight);
+        console.log("After estimating delivery time: " + result);
 
-        while (result.length > 0) {
-            result.sort((a, b) => b.pkgWeight - a.pkgWeight || a.distance - b.distance);
-
-            for (let i = 0; i < numberOfVehicles && result.length > 0; i++) {
-                if (vehicleAvailableTime[i] <= currentTime) {
-                    let totalWeight = 0;
-                    let tripDistance = 0;
-                    const tripPackages: Package[] = [];
-
-                    while (result.length > 0 && totalWeight + packages[0].pkgWeight <= maxWeight) {
-                        const pkg = result.shift()!;
-                        totalWeight += pkg.pkgWeight;
-                        tripDistance = Math.max(tripDistance, pkg.distance);
-                        tripPackages.push(pkg);
-                    }
-
-                    const tripTime = 2 * (tripDistance / maxSpeed);
-                    for (const pkg of tripPackages) {
-                        pkg.estimatedDeliveryTime = currentTime + tripTime / 2;
-                    }
-
-                    vehicleAvailableTime[i] = currentTime + tripTime;
-                }
-            }
-
-            currentTime = Math.min(...vehicleAvailableTime);
-            // Output results
-            for (const pkg of result) {
-                console.log(`${pkg.pkgId} ${pkg.discount!.toFixed(2)} ${pkg.totalCost!.toFixed(2)} ${pkg.estimatedDeliveryTime!.toFixed(2)}`);
-            }
+        // Output results
+        for (const pkg of result) {
+            console.log(`${pkg.pkgId} ${pkg.discount!.toFixed(0)} ${pkg.totalCost!.toFixed(0)} ${pkg.estimatedDeliveryTime!.toFixed(2)}`);
         }
-
     }
+
 }
